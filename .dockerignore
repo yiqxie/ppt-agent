@@ -1,0 +1,37 @@
+# 忽略本地依赖与构建产物，加速 docker build
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env
+frontend/.env.local
+
+# Backend
+backend/.env
+backend/.venv/
+backend/venv/
+backend/__pycache__/
+backend/*.egg-info/
+
+# Editor / OS
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Infra outputs
+infra/.azd/
+azd-env-*
+
+# Docs / CI 文件不需要进镜像
+README.md
+docs/
+.github/

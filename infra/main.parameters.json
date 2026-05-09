@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix": { "value": "pptagent" },
+    "openAiAccountName": { "value": "yiqxie-ai" },
+    "openAiResourceGroup": { "value": "OpenAI" },
+    "openAiDeployment": { "value": "gpt-4o" },
+    "openAiApiVersion": { "value": "2024-10-21" },
+    "containerImage": { "value": "ghcr.io/yiqxie/ppt-agent:latest" },
+    "authEnabled": { "value": false },
+    "aadTenantId": { "value": "" },
+    "aadApiAudience": { "value": "" }
+  }
+}

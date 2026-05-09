@@ -1,0 +1,36 @@
+# ============================================================
+# Python 后端依赖清单
+# ============================================================
+# Web 框架与异步服务
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+websockets==13.1
+
+# 数据校验
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# 数据库（PostgreSQL 异步驱动）
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# Azure 相关 SDK
+azure-storage-blob==12.24.0
+azure-identity==1.19.0
+openai==1.59.7
+
+# PPT 处理
+python-pptx==1.0.2
+pdf2image==1.17.0
+Pillow==11.1.0
+
+# 身份认证（Microsoft Entra ID JWT 校验）
+PyJWT[crypto]==2.10.1
+httpx==0.28.1
+
+# 通用
+python-dotenv==1.0.1
+tenacity==9.0.0
+loguru==0.7.3
