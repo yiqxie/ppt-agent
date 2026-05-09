@@ -1,14 +1,15 @@
 // =====================================================================
-// ppt-agent · Azure 部署 Bicep 模板（最低成本配置）
+// ppt-agent · Azure 部署 Bicep 模板（Container Apps + 低成本配置）
 // 创建：
-//   1. Storage Account（Standard_LRS）+ 三个 blob 容器
+//   1. Storage Account（Standard_LRS）+ 3 个 blob 容器
 //   2. PostgreSQL Flexible Server（Burstable B1ms）+ 数据库
-//   3. App Service Plan（Linux B1）+ Web App for Containers
-//   4. Web App 系统分配的 Managed Identity 授权访问 Storage
+//   3. Log Analytics Workspace + Container Apps Environment
+//   4. Container App（带系统 MI、WebSocket、自动伸缩）
+//   5. 角色：Container App MI -> Storage Blob Data Contributor + Delegator
 // 复用已有：Azure OpenAI（yiqxie-ai，eastus2）
 // =====================================================================
 
-@description('部署的资源前缀')
+@description('部署的资源前缀（小写字母数字）')
 param namePrefix string = 'pptagent'
 
 @description('部署区域')
@@ -38,7 +39,7 @@ param openAiDeployment string = 'gpt-4o'
 param openAiApiVersion string = '2024-10-21'
 
 @description('容器镜像 (registry/image:tag)')
-param containerImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
+param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
 @description('Microsoft Entra ID 租户 ID（启用认证时填写）')
 param aadTenantId string = ''
@@ -50,10 +51,10 @@ param aadApiAudience string = ''
 param authEnabled bool = false
 
 // ---------------- 计算变量 ----------------
-// Storage 名称必须 3-24 字符，全小写字母数字
 var storageName = toLower('${namePrefix}st${uniqueString(resourceGroup().id)}')
-var planName = '${namePrefix}-plan'
-var webAppName = '${namePrefix}-web-${uniqueString(resourceGroup().id)}'
+var lawName = '${namePrefix}-law'
+var envName = '${namePrefix}-env'
+var appName = '${namePrefix}-app'
 var pgServerName = '${namePrefix}-pg-${uniqueString(resourceGroup().id)}'
 var pgDbName = 'ppt_agent'
 
@@ -136,7 +137,7 @@ resource pgDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-12-01-pr
   properties: { charset: 'UTF8', collation: 'en_US.utf8' }
 }
 
-// 防火墙：允许 Azure 服务（App Service 出口 IP 不固定）
+// 防火墙：允许 Azure 服务访问（Container Apps 出口 IP 不固定）
 resource pgFwAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-01-preview' = {
   parent: pg
   name: 'AllowAzureServices'
@@ -146,59 +147,128 @@ resource pgFwAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023
   }
 }
 
-// ---------------- App Service Plan (B1 Linux) ----------------
-resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
-  name: planName
+// ---------------- Log Analytics + Container Apps Environment ----------------
+resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: lawName
   location: location
-  sku: { name: 'B1', tier: 'Basic' }
-  kind: 'linux'
-  properties: { reserved: true }
+  properties: {
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 30
+  }
 }
 
-// ---------------- Web App (Container) ----------------
-resource webApp 'Microsoft.Web/sites@2023-12-01' = {
-  name: webAppName
+resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: envName
   location: location
-  kind: 'app,linux,container'
+  properties: {
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: law.properties.customerId
+        sharedKey: law.listKeys().primarySharedKey
+      }
+    }
+    workloadProfiles: [
+      {
+        name: 'Consumption'
+        workloadProfileType: 'Consumption'
+      }
+    ]
+  }
+}
+
+// ---------------- Container App ----------------
+resource app 'Microsoft.App/containerApps@2024-03-01' = {
+  name: appName
+  location: location
   identity: { type: 'SystemAssigned' }
   properties: {
-    serverFarmId: plan.id
-    httpsOnly: true
-    siteConfig: {
-      linuxFxVersion: 'DOCKER|${containerImage}'
-      alwaysOn: true
-      ftpsState: 'Disabled'
-      http20Enabled: true
-      webSocketsEnabled: true
-      appSettings: [
-        { name: 'WEBSITES_PORT', value: '8000' }
-        { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
-        { name: 'DOCKER_REGISTRY_SERVER_URL', value: 'https://ghcr.io' }
-        { name: 'ENVIRONMENT', value: 'production' }
-        { name: 'DEBUG', value: 'false' }
-        { name: 'AZURE_STORAGE_ACCOUNT', value: storage.name }
-        { name: 'AZURE_CONTAINER_SCREENSHOTS', value: 'screenshots' }
-        { name: 'AZURE_CONTAINER_PROMPTS', value: 'prompts' }
-        { name: 'AZURE_CONTAINER_UPLOADS', value: 'uploads' }
+    managedEnvironmentId: cae.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: true
+        targetPort: 8000
+        transport: 'auto' // 支持 HTTP/2 与 WebSocket
+        allowInsecure: false
+        traffic: [
+          { latestRevision: true, weight: 100 }
+        ]
+        corsPolicy: {
+          allowedOrigins: ['*']
+          allowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+          allowedHeaders: ['*']
+          allowCredentials: false
+        }
+      }
+      secrets: [
         {
-          name: 'DATABASE_URL'
+          name: 'pg-conn'
           value: 'postgresql+asyncpg://${pgAdminUser}:${uriComponent(pgAdminPassword)}@${pg.properties.fullyQualifiedDomainName}:5432/${pgDbName}?ssl=require'
         }
-        { name: 'AZURE_OPENAI_ENDPOINT', value: 'https://${openAiAccountName}.openai.azure.com/' }
         {
-          name: 'AZURE_OPENAI_API_KEY'
+          name: 'openai-key'
           value: listKeys(resourceId(openAiSubscriptionId, openAiResourceGroup, 'Microsoft.CognitiveServices/accounts', openAiAccountName), '2024-04-01-preview').key1
         }
-        { name: 'AZURE_OPENAI_API_VERSION', value: openAiApiVersion }
-        { name: 'AZURE_OPENAI_VISION_DEPLOYMENT', value: openAiDeployment }
-        { name: 'AUTH_ENABLED', value: string(authEnabled) }
-        { name: 'AAD_TENANT_ID', value: aadTenantId }
-        { name: 'AAD_API_AUDIENCE', value: aadApiAudience }
-        { name: 'AAD_REQUIRED_SCOPE', value: 'access_as_user' }
-        { name: 'CORS_ORIGINS', value: '["https://${webAppName}.azurewebsites.net"]' }
-        { name: 'MAX_CONCURRENT_SLIDE_JOBS', value: '2' }
-        { name: 'MAX_CONCURRENT_SLIDE_PAGES', value: '4' }
       ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'app'
+          image: containerImage
+          resources: {
+            cpu: json('1.0')
+            memory: '2Gi'
+          }
+          env: [
+            { name: 'ENVIRONMENT', value: 'production' }
+            { name: 'DEBUG', value: 'false' }
+            { name: 'PORT', value: '8000' }
+            { name: 'AZURE_STORAGE_ACCOUNT', value: storage.name }
+            { name: 'AZURE_CONTAINER_SCREENSHOTS', value: 'screenshots' }
+            { name: 'AZURE_CONTAINER_PROMPTS', value: 'prompts' }
+            { name: 'AZURE_CONTAINER_UPLOADS', value: 'uploads' }
+            { name: 'DATABASE_URL', secretRef: 'pg-conn' }
+            { name: 'AZURE_OPENAI_ENDPOINT', value: 'https://${openAiAccountName}.openai.azure.com/' }
+            { name: 'AZURE_OPENAI_API_KEY', secretRef: 'openai-key' }
+            { name: 'AZURE_OPENAI_API_VERSION', value: openAiApiVersion }
+            { name: 'AZURE_OPENAI_VISION_DEPLOYMENT', value: openAiDeployment }
+            { name: 'AUTH_ENABLED', value: string(authEnabled) }
+            { name: 'AAD_TENANT_ID', value: aadTenantId }
+            { name: 'AAD_API_AUDIENCE', value: aadApiAudience }
+            { name: 'AAD_REQUIRED_SCOPE', value: 'access_as_user' }
+            { name: 'CORS_ORIGINS', value: '["*"]' }
+            { name: 'MAX_CONCURRENT_SLIDE_JOBS', value: '2' }
+            { name: 'MAX_CONCURRENT_SLIDE_PAGES', value: '4' }
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: { path: '/healthz', port: 8000 }
+              initialDelaySeconds: 30
+              periodSeconds: 30
+            }
+            {
+              type: 'Readiness'
+              httpGet: { path: '/healthz', port: 8000 }
+              initialDelaySeconds: 10
+              periodSeconds: 15
+            }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 3
+        rules: [
+          {
+            name: 'http-scale'
+            http: { metadata: { concurrentRequests: '50' } }
+          }
+        ]
+      }
     }
   }
   dependsOn: [
@@ -210,35 +280,34 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
   ]
 }
 
-// ---------------- 角色分配：Web App MI 访问 Storage Blob ----------------
-// Storage Blob Data Contributor
-var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-resource roleStorageBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+// ---------------- 角色分配：MI 访问 Storage ----------------
+var roleStorageBlobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+resource raStorageBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: storage
-  name: guid(storage.id, webApp.id, storageBlobDataContributorRoleId)
+  name: guid(storage.id, app.id, roleStorageBlobDataContributor)
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
-    principalId: webApp.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleStorageBlobDataContributor)
+    principalId: app.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-// Storage Blob Delegator（生成 User Delegation Key 用）
-var storageBlobDelegatorRoleId = 'db58b8e5-c6ad-4a2a-8342-4190687cbf4a'
-resource roleStorageDelegator 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+var roleStorageBlobDelegator = 'db58b8e5-c6ad-4a2a-8342-4190687cbf4a'
+resource raStorageDelegator 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: storage
-  name: guid(storage.id, webApp.id, storageBlobDelegatorRoleId)
+  name: guid(storage.id, app.id, roleStorageBlobDelegator)
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDelegatorRoleId)
-    principalId: webApp.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleStorageBlobDelegator)
+    principalId: app.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
 // ---------------- 输出 ----------------
-output webAppName string = webApp.name
-output webAppHostname string = webApp.properties.defaultHostName
-output webAppPrincipalId string = webApp.identity.principalId
+output appName string = app.name
+output appFqdn string = app.properties.configuration.ingress.fqdn
+output appPrincipalId string = app.identity.principalId
 output storageAccountName string = storage.name
 output postgresFqdn string = pg.properties.fullyQualifiedDomainName
 output postgresDb string = pgDbName
+output environmentName string = cae.name
