@@ -38,7 +38,8 @@ export default function SlideDetailPage() {
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
   const [promptText, setPromptText] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState("");
   const [snack, setSnack] = useState<{ msg: string; severity: "success" | "error" } | null>(null);
 
   useEffect(() => {
@@ -46,9 +47,21 @@ export default function SlideDetailPage() {
       setTitle(slideQ.data.title || "");
       setSummary(slideQ.data.summary || "");
       setPromptText(slideQ.data.prompt_text || "");
-      setTagsInput((slideQ.data.tags || []).join(", "));
+      setTags(slideQ.data.tags || []);
+      setNewTagInput("");
     }
   }, [slideQ.data]);
+
+  const addTagFromInput = () => {
+    const value = newTagInput.trim();
+    if (!value) return;
+    setTags((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setNewTagInput("");
+  };
+
+  const removeTag = (tag: string) => {
+    setTags((prev) => prev.filter((t) => t !== tag));
+  };
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -56,10 +69,7 @@ export default function SlideDetailPage() {
         title,
         summary,
         prompt_text: promptText,
-        tags: tagsInput
-          .split(/[，,]/g)
-          .map((t) => t.trim())
-          .filter(Boolean),
+        tags,
       }),
     onSuccess: (data) => {
       setSnack({ msg: "已保存", severity: "success" });
@@ -241,25 +251,26 @@ export default function SlideDetailPage() {
                   minRows={2}
                 />
                 <TextField
-                  label="标签 (用 , 分隔)"
-                  value={tagsInput}
-                  onChange={(e) => setTagsInput(e.target.value)}
+                  label="新增标签"
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  onBlur={addTagFromInput}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      addTagFromInput();
+                    }
+                  }}
                   fullWidth
                   size="small"
-                  helperText="例如：商务, 蓝白配色, 数据图表"
+                  helperText="输入标签后按回车，或输入后失去焦点，会自动创建标签。"
                 />
                 <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    当前标签预览：
-                  </Typography>
+                  <Typography variant="caption" color="text.secondary">当前标签：</Typography>
                   <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: "wrap", gap: 0.5 }}>
-                    {tagsInput
-                      .split(/[，,]/g)
-                      .map((t) => t.trim())
-                      .filter(Boolean)
-                      .map((t) => (
-                        <Chip key={t} label={t} size="small" />
-                      ))}
+                    {tags.map((t) => (
+                      <Chip key={t} label={t} size="small" onDelete={() => removeTag(t)} />
+                    ))}
                   </Stack>
                 </Box>
                 <TextField
