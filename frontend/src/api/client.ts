@@ -3,6 +3,8 @@ import type {
   PublicConfig,
   Slide,
   SlideList,
+  SystemConfig,
+  SystemConfigUpdateIn,
   SlideUpdateInput,
   UploadJob,
   UploadJobList,
@@ -105,6 +107,16 @@ export async function listSlides(params: {
   return data;
 }
 
+export async function listSlideIds(params: {
+  job_id?: string;
+  keyword?: string;
+  tag?: string;
+  limit?: number;
+} = {}): Promise<string[]> {
+  const { data } = await apiClient.get<{ ids: string[] }>("/api/slides/query/ids", { params });
+  return data.ids;
+}
+
 export async function getSlide(slideId: string): Promise<Slide> {
   const { data } = await apiClient.get<Slide>(`/api/slides/${slideId}`);
   return data;
@@ -126,6 +138,17 @@ export async function batchDeleteSlides(slideIds: string[]): Promise<{ deleted: 
 export async function listAllTags(): Promise<string[]> {
   const { data } = await apiClient.get<{ tags: string[] }>("/api/slides/tags/all");
   return data.tags;
+}
+
+// ============= System Config =============
+export async function fetchSystemConfig(): Promise<SystemConfig> {
+  const { data } = await apiClient.get<SystemConfig>("/api/system-config");
+  return data;
+}
+
+export async function updateSystemConfig(payload: SystemConfigUpdateIn): Promise<SystemConfig> {
+  const { data } = await apiClient.put<SystemConfig>("/api/system-config", payload);
+  return data;
 }
 
 // ============= WebSocket =============

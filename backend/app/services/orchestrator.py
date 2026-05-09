@@ -12,10 +12,12 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from io import BytesIO
 from typing import Optional
 from uuid import UUID
 
 from loguru import logger
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -36,6 +38,26 @@ from .storage import get_storage_service
 def _slide_dir(job_id: UUID) -> str:
     """约定：同一个 job 下的所有 slide 都放在同一目录下。"""
     return f"job_{job_id}"
+
+
+def _compress_screenshot(image_bytes: bytes) -> tuple[bytes, str, str]:
+    """截图压缩：优先转为 JPEG 并限制最大边长，失败时回退原 PNG。"""
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            elif img.mode == "L":
+                img = img.convert("RGB")
+
+            resampling = getattr(Image, "Resampling", Image)
+            img.thumbnail((1600, 1600), resampling.LANCZOS)
+
+            out = BytesIO()
+            img.save(out, format="JPEG", quality=82, optimize=True, progressive=True)
+            return out.getvalue(), "jpg", "image/jpeg"
+    except Exception as exc:  # pragma: no cover
+        logger.warning(f"截图压缩失败，回退原图：{exc}")
+        return image_bytes, "png", "image/png"
 
 
 async def process_upload_job(
@@ -101,19 +123,22 @@ async def process_upload_job(
             async with sem:
                 slide_index = idx + 1
                 slug = f"{_slide_dir(job_id)}/slide_{slide_index:03d}"
-                screenshot_blob = f"{slug}.png"
+                compressed_bytes, screenshot_ext, screenshot_mime = await asyncio.to_thread(
+                    _compress_screenshot, image_bytes
+                )
+                screenshot_blob = f"{slug}.{screenshot_ext}"
                 prompt_blob = f"{slug}.json"
 
                 # 3.1) 上传截图
                 await storage.upload_bytes(
                     settings.azure_container_screenshots,
                     screenshot_blob,
-                    image_bytes,
-                    content_type="image/png",
+                    compressed_bytes,
+                    content_type=screenshot_mime,
                 )
 
                 # 3.2) 调用 AI 分析
-                analysis = await ai.analyze_slide(image_bytes, image_mime="image/png")
+                analysis = await ai.analyze_slide(compressed_bytes, image_mime=screenshot_mime)
 
                 # 3.3) 上传 prompt JSON
                 prompt_payload = {

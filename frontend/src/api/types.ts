@@ -67,6 +67,38 @@ export interface PublicConfig {
   api_scope?: string | null;
 }
 
+export interface StagePromptConfig {
+  system_prompt: string;
+  user_prompt: string;
+}
+
+export interface SystemConfig {
+  azure_foundry_url: string;
+  default_model_deployment: string;
+  model_candidates: string[];
+  model_settings: {
+    temperature?: number;
+    max_tokens?: number;
+    top_p?: number;
+    [key: string]: unknown;
+  };
+  stage_prompts: Record<string, StagePromptConfig>;
+  updated_at: string;
+}
+
+export interface SystemConfigUpdateIn {
+  azure_foundry_url?: string;
+  default_model_deployment?: string;
+  model_candidates?: string[];
+  model_settings?: {
+    temperature?: number;
+    max_tokens?: number;
+    top_p?: number;
+    [key: string]: unknown;
+  };
+  stage_prompts?: Record<string, StagePromptConfig>;
+}
+
 // WebSocket 进度消息
 export type ProgressMessage =
   | {

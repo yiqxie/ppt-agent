@@ -22,7 +22,7 @@ import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { batchDeleteSlides, listAllTags, listSlides } from "../api/client";
+import { batchDeleteSlides, listAllTags, listSlideIds, listSlides } from "../api/client";
 import type { ProgressMessage, Slide } from "../api/types";
 import SlideCard from "../components/SlideCard";
 import { useProgressSocket } from "../hooks/useProgressSocket";
@@ -109,6 +109,15 @@ export default function SlideListPage() {
     onError: (e: Error) => setSnack({ msg: e.message, severity: "error" }),
   });
 
+  const selectByFilterMutation = useMutation({
+    mutationFn: () => listSlideIds({ job_id: jobId, keyword, tag, limit: 10000 }),
+    onSuccess: (ids) => {
+      setSelected(new Set(ids));
+      setSnack({ msg: `已勾选当前筛选结果 ${ids.length} 条`, severity: "success" });
+    },
+    onError: (e: Error) => setSnack({ msg: e.message, severity: "error" }),
+  });
+
   return (
     <Stack spacing={2.5}>
       <Box>
@@ -180,10 +189,21 @@ export default function SlideListPage() {
             <Typography variant="body2" color="text.secondary">
               共 {slidesQ.data?.total ?? 0} 条
             </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={selectByFilterMutation.isPending}
+              onClick={() => selectByFilterMutation.mutate()}
+            >
+              {selectByFilterMutation.isPending ? "勾选中..." : "一键勾选(当前筛选)"}
+            </Button>
             <Button size="small" variant="text" onClick={handleSelectAll}>
               {selected.size === (slidesQ.data?.items.length ?? 0) && selected.size > 0
                 ? "取消全选"
                 : "全选本页"}
+            </Button>
+            <Button size="small" variant="text" onClick={() => setSelected(new Set())}>
+              清空勾选
             </Button>
             <Button
               size="small"

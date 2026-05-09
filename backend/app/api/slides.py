@@ -93,6 +93,36 @@ async def list_slides(
     return SlideListOut(items=items, total=total)
 
 
+@router.get("/query/ids", summary="按筛选条件返回 slide ID 列表（用于一键勾选）")
+async def list_slide_ids(
+    job_id: Optional[UUID] = Query(default=None),
+    keyword: Optional[str] = Query(default=None),
+    tag: Optional[str] = Query(default=None),
+    limit: int = Query(default=5000, ge=1, le=10000),
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    stmt = select(Slide.id).order_by(Slide.created_at.desc())
+
+    if job_id:
+        stmt = stmt.where(Slide.job_id == job_id)
+
+    if keyword:
+        like = f"%{keyword}%"
+        cond = or_(
+            Slide.title.ilike(like),
+            Slide.summary.ilike(like),
+            Slide.prompt_text.ilike(like),
+        )
+        stmt = stmt.where(cond)
+
+    if tag:
+        stmt = stmt.where(Slide.tags.cast(JSONB).contains([tag]))
+
+    rows = (await db.execute(stmt.limit(limit))).all()
+    return {"ids": [str(r[0]) for r in rows]}
+
+
 @router.get("/{slide_id}", response_model=SlideOut, summary="查询单个 slide 详情")
 async def get_slide(
     slide_id: UUID,

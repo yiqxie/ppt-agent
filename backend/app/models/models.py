@@ -109,3 +109,47 @@ class Slide(Base):
     )
 
     job: Mapped[UploadJob] = relationship("UploadJob", back_populates="slides")
+
+
+class SystemConfig(Base):
+    """系统配置（单例）。
+
+    用于维护：
+    - Azure Foundry 链接
+    - 模型候选与默认模型
+    - 模型参数
+    - 不同阶段调用模型的提示词模板
+    """
+
+    __tablename__ = "system_configs"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+
+    # 固定单例键，便于按 key 读取与更新
+    config_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+
+    # Azure Foundry 项目或门户链接
+    azure_foundry_url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+
+    # 默认使用的部署名（如 gpt-4o）
+    default_model_deployment: Mapped[str] = mapped_column(String(128), nullable=False, default="gpt-4o")
+
+    # 候选模型列表，JSON 数组
+    model_candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+
+    # 模型参数（temperature/max_tokens/top_p 等）
+    model_settings: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    # 不同阶段提示词配置：
+    # {
+    #   "slide_analysis": {"system_prompt": "...", "user_prompt": "..."},
+    #   "prompt_refine": {...}
+    # }
+    stage_prompts: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

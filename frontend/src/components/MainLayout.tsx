@@ -9,6 +9,7 @@ const NAV_ITEMS: { to: string; label: string }[] = [
   { to: "/", label: "概览" },
   { to: "/upload", label: "上传 PPT" },
   { to: "/slides", label: "Slide 库" },
+  { to: "/system-config", label: "系统配置" },
 ];
 
 /**

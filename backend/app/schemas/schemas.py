@@ -105,3 +105,36 @@ class ProgressMessage(BaseModel):
     processed_slides: Optional[int] = None
     slide: Optional[SlideOut] = None
     error_message: Optional[str] = None
+
+
+# ============================================================
+# 系统配置
+# ============================================================
+
+
+class StagePromptConfig(BaseModel):
+    """单个阶段的提示词配置。"""
+
+    system_prompt: str = Field(default="")
+    user_prompt: str = Field(default="")
+
+
+class SystemConfigOut(BaseModel):
+    """系统配置出参。"""
+
+    azure_foundry_url: str
+    default_model_deployment: str
+    model_candidates: List[str] = Field(default_factory=list)
+    model_settings: Dict[str, Any] = Field(default_factory=dict)
+    stage_prompts: Dict[str, StagePromptConfig] = Field(default_factory=dict)
+    updated_at: datetime
+
+
+class SystemConfigUpdateIn(BaseModel):
+    """系统配置更新入参（均为可选，按字段增量更新）。"""
+
+    azure_foundry_url: Optional[str] = None
+    default_model_deployment: Optional[str] = None
+    model_candidates: Optional[List[str]] = None
+    model_settings: Optional[Dict[str, Any]] = None
+    stage_prompts: Optional[Dict[str, StagePromptConfig]] = None

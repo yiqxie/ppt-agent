@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from .api import jobs, slides, websocket
+from .api import jobs, slides, system_config, websocket
 from .core.config import get_settings
 from .core.logging import setup_logging
 from .db.session import Base, engine
@@ -74,6 +74,7 @@ def create_app() -> FastAPI:
     # 业务路由
     app.include_router(jobs.router, prefix=settings.api_prefix)
     app.include_router(slides.router, prefix=settings.api_prefix)
+    app.include_router(system_config.router, prefix=settings.api_prefix)
     app.include_router(websocket.router)  # ws 不带 /api 前缀
 
     # 可选：托管前端 dist（生产容器内）

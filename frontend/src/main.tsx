@@ -9,6 +9,7 @@ import DashboardPage from "./pages/DashboardPage";
 import UploadPage from "./pages/UploadPage";
 import SlideListPage from "./pages/SlideListPage";
 import SlideDetailPage from "./pages/SlideDetailPage";
+import SystemConfigPage from "./pages/SystemConfigPage";
 import { AppAuthProvider } from "./auth/AuthProvider";
 
 const queryClient = new QueryClient({
@@ -34,6 +35,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                 <Route path="upload" element={<UploadPage />} />
                 <Route path="slides" element={<SlideListPage />} />
                 <Route path="slides/:id" element={<SlideDetailPage />} />
+                <Route path="system-config" element={<SystemConfigPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
