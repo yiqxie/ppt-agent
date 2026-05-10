@@ -6,7 +6,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,6 +58,7 @@ async def list_slides(
     job_id: Optional[UUID] = Query(default=None),
     keyword: Optional[str] = Query(default=None, description="标题/摘要/prompt 模糊匹配"),
     tag: Optional[str] = Query(default=None, description="按 tag 精确过滤"),
+    style: Optional[str] = Query(default=None, description="按整体风格过滤"),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=24, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -87,6 +88,14 @@ async def list_slides(
         stmt = stmt.where(cond)
         count_stmt = count_stmt.where(cond)
 
+    if style:
+        style_expr = func.coalesce(
+            func.jsonb_extract_path_text(Slide.style_meta.cast(JSONB), "overall_style"), ""
+        )
+        cond = style_expr == style
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
+
     total = (await db.execute(count_stmt)).scalar_one()
     rows = (await db.execute(stmt.offset(skip).limit(limit))).scalars().all()
     items = [await _to_slide_out(r) for r in rows]
@@ -98,6 +107,7 @@ async def list_slide_ids(
     job_id: Optional[UUID] = Query(default=None),
     keyword: Optional[str] = Query(default=None),
     tag: Optional[str] = Query(default=None),
+    style: Optional[str] = Query(default=None),
     limit: int = Query(default=5000, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
@@ -119,8 +129,31 @@ async def list_slide_ids(
     if tag:
         stmt = stmt.where(Slide.tags.cast(JSONB).contains([tag]))
 
+    if style:
+        style_expr = func.coalesce(
+            func.jsonb_extract_path_text(Slide.style_meta.cast(JSONB), "overall_style"), ""
+        )
+        stmt = stmt.where(style_expr == style)
+
     rows = (await db.execute(stmt.limit(limit))).all()
     return {"ids": [str(r[0]) for r in rows]}
+
+
+@router.get("/styles/all", summary="返回所有可用的整体风格")
+async def list_all_styles(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    stmt = text(
+        """
+        SELECT DISTINCT COALESCE(style_meta->>'overall_style', '') AS style
+        FROM slides
+        WHERE COALESCE(style_meta->>'overall_style', '') <> ''
+        ORDER BY style ASC
+        """
+    )
+    rows = (await db.execute(stmt)).all()
+    return {"styles": [str(row[0]) for row in rows]}
 
 
 @router.get("/{slide_id}", response_model=SlideOut, summary="查询单个 slide 详情")

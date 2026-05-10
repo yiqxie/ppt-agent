@@ -25,7 +25,13 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { batchDeleteSlides, listAllTags, listSlideIds, listSlides } from "../api/client";
 import type { ProgressMessage, Slide } from "../api/types";
 import SlideCard from "../components/SlideCard";
-import { useProgressSocket } from "../hooks/useProgressSocket";
+  import {
+    batchDeleteSlides,
+    listAllStyles,
+    listAllTags,
+    listSlideIds,
+    listSlides,
+  } from "../api/client";
 
 const PAGE_SIZE = 24;
 
@@ -39,30 +45,34 @@ export default function SlideListPage() {
   const [keywordInput, setKeywordInput] = useState(searchParams.get("keyword") || "");
   const keyword = searchParams.get("keyword") || undefined;
   const tag = searchParams.get("tag") || undefined;
+    const style = searchParams.get("style") || undefined;
   const page = Number(searchParams.get("page") || 1);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [snack, setSnack] = useState<{ msg: string; severity: "success" | "error" } | null>(null);
 
   const slidesQ = useQuery({
-    queryKey: ["slides", { jobId, keyword, tag, page }],
+    queryKey: ["slides", { jobId, keyword, tag, style, page }],
     queryFn: () =>
       listSlides({
         job_id: jobId,
         keyword,
         tag,
+          style,
         skip: (page - 1) * PAGE_SIZE,
         limit: PAGE_SIZE,
       }),
   });
 
   const tagsQ = useQuery({ queryKey: ["all-tags"], queryFn: listAllTags });
+    const stylesQ = useQuery({ queryKey: ["all-styles"], queryFn: listAllStyles });
 
   // 实时刷新：收到完成事件就 invalidate
   useProgressSocket((msg: ProgressMessage) => {
     if (msg.type === "slide_completed" || msg.type === "done") {
       queryClient.invalidateQueries({ queryKey: ["slides"] });
       queryClient.invalidateQueries({ queryKey: ["all-tags"] });
+      queryClient.invalidateQueries({ queryKey: ["all-styles"] });
     }
   });
 
@@ -110,7 +120,7 @@ export default function SlideListPage() {
   });
 
   const selectByFilterMutation = useMutation({
-    mutationFn: () => listSlideIds({ job_id: jobId, keyword, tag, limit: 10000 }),
+      mutationFn: () => listSlideIds({ job_id: jobId, keyword, tag, style, limit: 10000 }),
     onSuccess: (ids) => {
       setSelected(new Set(ids));
       setSnack({ msg: `已勾选当前筛选结果 ${ids.length} 条`, severity: "success" });
@@ -163,11 +173,26 @@ export default function SlideListPage() {
                 </MenuItem>
               ))}
             </TextField>
+              <TextField
+                select
+                size="small"
+                label="风格"
+                value={style || ""}
+                onChange={(e) => updateParams({ style: e.target.value || undefined, page: "1" })}
+                sx={{ minWidth: 180 }}
+              >
+                <MenuItem value="">不限</MenuItem>
+                {(stylesQ.data || []).map((s) => (
+                  <MenuItem value={s} key={s}>
+                    {s}
+                  </MenuItem>
+                ))}
+              </TextField>
             <Button
               variant="outlined"
               onClick={() => {
                 setKeywordInput("");
-                updateParams({ keyword: undefined, tag: undefined, page: "1" });
+                  updateParams({ keyword: undefined, tag: undefined, style: undefined, page: "1" });
               }}
             >
               重置
@@ -186,6 +211,13 @@ export default function SlideListPage() {
               />
             )}
             <Box sx={{ flexGrow: 1 }} />
+              {style && (
+                <Chip
+                  label={`风格: ${style}`}
+                  size="small"
+                  onDelete={() => updateParams({ style: undefined, page: "1" })}
+                />
+              )}
             <Typography variant="body2" color="text.secondary">
               共 {slidesQ.data?.total ?? 0} 条
             </Typography>

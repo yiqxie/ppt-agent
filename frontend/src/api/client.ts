@@ -100,6 +100,7 @@ export async function listSlides(params: {
   job_id?: string;
   keyword?: string;
   tag?: string;
+  style?: string;
   skip?: number;
   limit?: number;
 } = {}): Promise<SlideList> {
@@ -111,6 +112,7 @@ export async function listSlideIds(params: {
   job_id?: string;
   keyword?: string;
   tag?: string;
+  style?: string;
   limit?: number;
 } = {}): Promise<string[]> {
   const { data } = await apiClient.get<{ ids: string[] }>("/api/slides/query/ids", { params });
@@ -138,6 +140,11 @@ export async function batchDeleteSlides(slideIds: string[]): Promise<{ deleted: 
 export async function listAllTags(): Promise<string[]> {
   const { data } = await apiClient.get<{ tags: string[] }>("/api/slides/tags/all");
   return data.tags;
+}
+
+export async function listAllStyles(): Promise<string[]> {
+  const { data } = await apiClient.get<{ styles: string[] }>("/api/slides/styles/all");
+  return data.styles;
 }
 
 // ============= System Config =============

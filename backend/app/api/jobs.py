@@ -6,6 +6,7 @@ import asyncio
 from typing import List, Optional
 from uuid import UUID, uuid4
 
+from azure.core.exceptions import HttpResponseError
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,17 @@ def _get_concurrency_sem() -> asyncio.Semaphore:
     if _concurrency_sem is None:
         _concurrency_sem = asyncio.Semaphore(get_settings().max_concurrent_slide_jobs)
     return _concurrency_sem
+
+
+def _raise_storage_http_error(exc: HttpResponseError) -> None:
+    """将 Azure Storage 数据面异常转换为更明确的 API 错误。"""
+    error_code = getattr(exc, "error_code", None)
+    if error_code == "AuthorizationFailure":
+        raise HTTPException(
+            status_code=503,
+            detail="后端暂时无法访问文件存储，请稍后重试或联系管理员检查 Azure Blob 权限配置。",
+        ) from exc
+    raise HTTPException(status_code=502, detail=f"文件存储服务异常：{error_code or exc}") from exc
 
 
 @router.post("/upload", response_model=UploadResponse, summary="上传一个或多个 PPT 文件")
@@ -68,16 +80,19 @@ async def upload_ppt_files(
         job_id = uuid4()
         blob_name = f"{job_id}/{upload.filename}"
         # 1) 上传原 PPT 到 Storage
-        await storage.upload_bytes(
-            settings.azure_container_uploads,
-            blob_name,
-            data,
-            content_type=(
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                if suffix.endswith(".pptx")
-                else "application/vnd.ms-powerpoint"
-            ),
-        )
+        try:
+            await storage.upload_bytes(
+                settings.azure_container_uploads,
+                blob_name,
+                data,
+                content_type=(
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    if suffix.endswith(".pptx")
+                    else "application/vnd.ms-powerpoint"
+                ),
+            )
+        except HttpResponseError as exc:
+            _raise_storage_http_error(exc)
 
         # 2) 创建 Job 记录
         job = UploadJob(
@@ -126,7 +141,10 @@ async def start_job(
         return UploadJobOut.model_validate(job)
 
     # 重新拉原始 PPT
-    data = await storage.download_bytes(settings.azure_container_uploads, job.blob_path)
+    try:
+        data = await storage.download_bytes(settings.azure_container_uploads, job.blob_path)
+    except HttpResponseError as exc:
+        _raise_storage_http_error(exc)
 
     job.status = JOB_STATUS_PENDING
     job.processed_slides = 0
